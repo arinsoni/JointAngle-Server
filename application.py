@@ -1,108 +1,79 @@
-# from flask import Flask, request, jsonify
-# import cv2
-# import numpy as np
-# import base64
-# from io import BytesIO
-# import mediapipe as mp
+import streamlit as st
+import cv2
+import mediapipe as mp
+import numpy as np
 
-# application = Flask(__name__)
+mp_drawing = mp.solutions.drawing_utils
+mp_pose = mp.solutions.pose
 
-# mp_pose = mp.solutions.pose
-# pose = mp_pose.Pose(min_detection_confidence=0.5, min_tracking_confidence=0.5)
-
-# def get_angle(joint1, joint2, joint3):
-#     j1 = np.array(joint1)
-#     j2 = np.array(joint2) 
-#     j3 = np.array(joint3) 
+def get_angle_vertical(joint1, joint2):
+    j1 = np.array(joint1)
+    j2 = np.array(joint2)
+  
+    vector = j1 - j2
+  
+    vertical_vector = np.array([0, 1])
+  
+    dot_product = np.dot(vector, vertical_vector)
+    magnitude_vector = np.linalg.norm(vector)
+    magnitude_vertical = np.linalg.norm(vertical_vector)  
+  
+    cosine_angle = dot_product / (magnitude_vector * magnitude_vertical)
+  
+    cosine_angle = np.clip(cosine_angle, -1.0, 1.0)
+  
+    angle_radians = np.arccos(cosine_angle)
+    angle_degrees = np.degrees(angle_radians)
     
-#     radians = np.arctan2(
-#         j3[1] - j2[1], j3[0] - j2[0]) - np.arctan2(j1[1] - j2[1], j1[0] - j2[0])
+    return angle_degrees
 
-#     angle = np.abs(radians * 180.0 / np.pi)
-    
-#     if angle > 180.0:
-#         angle = 360 - angle
-        
-#     return angle 
+def main():
+    st.title("Live Pose Estimation")
+    st.sidebar.header("Controls")
 
-# pose_dict = mp.solutions.pose.PoseLandmark
+    if 'camera_on' not in st.session_state:
+        st.session_state.camera_on = False
+        st.session_state.capture_requested = False
 
-# body_parts = [
-#     {
-#         "name": "left_arm",
-#         "components": [
-#             mp.solutions.pose.PoseLandmark.LEFT_SHOULDER,
-#             mp.solutions.pose.PoseLandmark.LEFT_ELBOW,
-#             mp.solutions.pose.PoseLandmark.LEFT_WRIST
-#         ]
-#     },
-#     {
-#         "name": "right_arm",
-#         "components": [
-#             mp.solutions.pose.PoseLandmark.RIGHT_SHOULDER,
-#             mp.solutions.pose.PoseLandmark.RIGHT_ELBOW,
-#             mp.solutions.pose.PoseLandmark.RIGHT_WRIST
-#         ]
-#     },
-#     {
-#         "name": "right_leg",
-#         "components": [
-#             mp.solutions.pose.PoseLandmark.RIGHT_HIP,
-#             mp.solutions.pose.PoseLandmark.RIGHT_KNEE,
-#             mp.solutions.pose.PoseLandmark.RIGHT_ANKLE
-#         ]
-#     },
-#     {
-#         "name": "left_leg",
-#         "components": [
-#             mp.solutions.pose.PoseLandmark.LEFT_HIP,
-#             mp.solutions.pose.PoseLandmark.LEFT_KNEE,
-#             mp.solutions.pose.PoseLandmark.LEFT_ANKLE
-#         ]
-#     }
-# ]
+    start_camera = st.sidebar.button('Start Camera', key='start_camera')
+    stop_camera = st.sidebar.button('Stop Camera', key='stop_camera')
+    capture_button = st.sidebar.button('Capture', key='capture_frame')
 
+    if start_camera:
+        st.session_state.camera_on = True
+        st.session_state.capture_requested = False
+    if stop_camera:
+        st.session_state.camera_on = False
+        st.session_state.capture_requested = False
+    if capture_button:
+        st.session_state.capture_requested = True
 
+    FRAME_WINDOW = st.empty()
+    cap = cv2.VideoCapture(0)
 
-# print(body_parts[0]["components"][0])
-# @application.route('/process_image', methods=['POST'])
-# def process_image():
-#     data = request.get_json()
-#     if not data or 'image' not in data:
-#         return jsonify({'error': 'No image data provided'}), 400
+    with mp_pose.Pose(min_detection_confidence=0.5, min_tracking_confidence=0.5) as pose:
+        while st.session_state.camera_on and cap.isOpened():
+            ret, frame = cap.read()
+            if not ret:
+                continue
 
-#     base64_image = data['image']
-#     image_data = base64.b64decode(base64_image)
-#     nparr = np.frombuffer(image_data, np.uint8)
-#     img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-#     results = pose.process(img)
-#     try:
-#         landmarks = results.pose_landmarks.landmark
-#         angles_response = [{"name": part["name"], "angle": []} for part in body_parts]
-            
-#         for part, response_part in zip(body_parts, angles_response):
-#             joint1_idx, joint2_idx, joint3_idx = [component.value for component in part["components"]]
-#             joint1 = (landmarks[joint1_idx].x, landmarks[joint1_idx].y)
-#             joint2 = (landmarks[joint2_idx].x, landmarks[joint2_idx].y)
-#             joint3 = (landmarks[joint3_idx].x, landmarks[joint3_idx].y)
-#             angle = get_angle(joint1, joint2, joint3)
-#             response_part["angle"].append(angle)
+            image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            results = pose.process(image)
+            mp_drawing.draw_landmarks(image, results.pose_landmarks, mp_pose.POSE_CONNECTIONS)
+            FRAME_WINDOW.image(image)
 
-#         print(angles_response)
-#         return jsonify(angles_response)
-#     except Exception as e:
-#         return jsonify({'error': str(e)}), 500
+            if st.session_state.capture_requested:
+                if results.pose_landmarks:
+                    landmarks = results.pose_landmarks.landmark
+                    shoulder = [landmarks[mp_pose.PoseLandmark.LEFT_SHOULDER.value].x, landmarks[mp_pose.PoseLandmark.LEFT_SHOULDER.value].y]
+                    elbow = [landmarks[mp_pose.PoseLandmark.LEFT_ELBOW.value].x, landmarks[mp_pose.PoseLandmark.LEFT_ELBOW.value].y]
+                    angle = get_angle_vertical(shoulder, elbow)
+                    st.write(f'Angle between shoulder and vertical: {angle:.2f} degrees')
+                st.session_state.camera_on = False
+                st.session_state.capture_requested = False
+                break
 
-# if __name__ == '__main__':
-#     application.run(debug=True)
-
-
-from flask import Flask
-application = Flask(__name__)
-
-@application.route("/")
-def hello_world():
-    return "<h1 style='color:green'>Hello World!</h1>"
+    cap.release()
 
 if __name__ == "__main__":
-    application.run(host='0.0.0.0', port=5000)
+    main()
