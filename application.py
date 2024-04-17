@@ -50,7 +50,7 @@ def main():
         st.session_state.capture_requested = True
 
     FRAME_WINDOW = st.empty()
-    cap = cv2.VideoCapture(1)
+    cap = cv2.VideoCapture(2)
 
     with mp_pose.Pose(min_detection_confidence=0.5, min_tracking_confidence=0.5) as pose:
         while st.session_state.camera_on and cap.isOpened():
